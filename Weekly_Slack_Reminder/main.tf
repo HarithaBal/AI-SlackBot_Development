@@ -2,6 +2,15 @@ provider "aws" {
   region = "us-east-2"
 }
 
+data "aws_secretsmanager_secret_version" "slack_credentials" {
+  secret_id = "Hari_AI_SlackBot_Cred"  # Update this if your secret has a different name
+}
+
+locals {
+  slack_secrets = jsondecode(data.aws_secretsmanager_secret_version.slack_credentials.secret_string)
+}
+
+
 #######################
 # IAM Role & Policies #
 #######################
@@ -26,6 +35,27 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+resource "aws_iam_policy" "lambda_secret_policy" {
+  name = "LambdaSecretsAccess"
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect   = "Allow",
+        Action   = ["secretsmanager:GetSecretValue"],
+        Resource = "*"  # Or the specific ARN of your secret
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "attach_lambda_secret_policy" {
+  role       = aws_iam_role.lambda_exec_role.name
+  policy_arn = aws_iam_policy.lambda_secret_policy.arn
+}
+
+
 ###########################
 # Lambda + Trigger Setup  #
 ###########################
@@ -39,7 +69,10 @@ resource "aws_lambda_function" "send_slack_message" {
   timeout          = 10
 
   environment {
-    variables = {}
+    variables = {
+        SLACK_BOT_TOKEN  = local.slack_secrets.SLACK_BOT_TOKEN
+        SLACK_CHANNEL_ID = local.slack_secrets.SLACK_CHANNEL_ID
+    }
   }
 }
 
